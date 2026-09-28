@@ -28,6 +28,9 @@ public protocol GMPremiumManager: AnyObject {
 
     func fetchProfile() async throws -> AdaptyProfile
 
+    /// Logs the user in with your own user id (`Adapty.identify`).
+    func identify(customerUserId: String) async throws
+
     func logPaywallOpen(for paywall: AdaptyFlow) async throws
 
     func checkSubscriptionStatus(profile: AdaptyProfile) -> [String: AdaptyProfile.AccessLevel]
@@ -36,6 +39,11 @@ public protocol GMPremiumManager: AnyObject {
 }
 
 public extension GMPremiumManager {
+    /// Default for implementations written before `identify` existed.
+    func identify(customerUserId: String) async throws {
+        try await Adapty.identify(customerUserId)
+    }
+
     func fetchAllPaywalls(
         for placements: [any Placements],
         locale: String? = nil

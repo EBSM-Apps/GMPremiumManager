@@ -3,9 +3,21 @@
 
 PremiumManager needs to be configured on AppDelegate or SwiftUI's App init, only once. For customerUserId you need to use the unique identifier that you created once user installed the app. If you are using something from Firebase ID or AppsFlyer ID you can also pass this one here.
 
+`customerUserId` is optional. Leave it out when your user id isn't known yet (for example it comes from your backend after sign-up) and log the user in later with `identify` (section 1a).
+
 
 `PremiumManager.configure(key: <YOUR_ADAPTY_KEY>, observerMode: false, idfaCollectionDisabled: false, customerUserId: <Custom_user_id that you use to identify user> ipAddressCollectionDisabled: false, implementation: GMPremiumManagerImpl())`
 
+
+# 1a. Login (identify)
+
+When your user id becomes known, or changes, log the user in:
+
+```swift
+try await PremiumManager.shared.identify(customerUserId: userId)
+```
+
+Before activation finishes, the id is kept and Adapty starts on that user. After activation, Adapty switches to that user's profile and `isPremium` / `activeAccessLevels` are refreshed. Identifying again with the current id does nothing. There is no logout.
 
 # 2. Activation and Fetching Paywall Flows
 

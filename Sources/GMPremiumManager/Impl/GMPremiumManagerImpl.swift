@@ -133,6 +133,10 @@ final public class GMPremiumManagerImpl: GMPremiumManager {
         return profile.accessLevels
     }
 
+    public func identify(customerUserId: String) async throws {
+        try await Adapty.identify(customerUserId)
+    }
+
     public func isActivated() -> Bool {
         return isAdaptyActivated
     }

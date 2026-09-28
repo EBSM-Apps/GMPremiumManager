@@ -12,7 +12,9 @@ import SwiftUI
 
 final public class PremiumManager: ObservableObject, @unchecked Sendable {
 
-    public init(key: String, observerMode: Bool = false, idfaCollectionDisabled: Bool = false, customerUserId: String, ipAddressCollectionDisabled: Bool = false, implementation: GMPremiumManager) {
+    /// - Parameter customerUserId: your user id, or nil to start anonymous and
+    ///   log the user in later with `identify(customerUserId:)`.
+    public init(key: String, observerMode: Bool = false, idfaCollectionDisabled: Bool = false, customerUserId: String? = nil, ipAddressCollectionDisabled: Bool = false, implementation: GMPremiumManager) {
 
         self.implementation = implementation
         self.implementation.configurationBuilder = AdaptyConfiguration
@@ -24,7 +26,9 @@ final public class PremiumManager: ObservableObject, @unchecked Sendable {
         Adapty.delegate = self
     }
 
-    public static func configure(key: String, observerMode: Bool = false, idfaCollectionDisabled: Bool = false, customerUserId: String, ipAddressCollectionDisabled: Bool = false, implementation: GMPremiumManager) {
+    /// - Parameter customerUserId: your user id, or nil to start anonymous and
+    ///   log the user in later with `identify(customerUserId:)`.
+    public static func configure(key: String, observerMode: Bool = false, idfaCollectionDisabled: Bool = false, customerUserId: String? = nil, ipAddressCollectionDisabled: Bool = false, implementation: GMPremiumManager) {
         if shared == nil {
             shared = PremiumManager(key: key, observerMode: observerMode, idfaCollectionDisabled: idfaCollectionDisabled, customerUserId: customerUserId, ipAddressCollectionDisabled: ipAddressCollectionDisabled, implementation: implementation)
         } else {
@@ -34,6 +38,11 @@ final public class PremiumManager: ObservableObject, @unchecked Sendable {
 
     public static var shared: PremiumManager!
     private let implementation: GMPremiumManager
+
+    /// A user id given to `identify` before activation finished; applied as
+    /// soon as Adapty is active.
+    private var pendingCustomerUserId: String?
+    private let pendingLock = NSLock()
 
     @Published public var isPremium = false
     @Published public var activeAccessLevels: [String] = []
@@ -45,6 +54,12 @@ final public class PremiumManager: ObservableObject, @unchecked Sendable {
         }
         do {
             try await implementation.activate(appInstanceId: appInstanceId)
+            // A login that arrived while activating: Adapty ignores an
+            // identify to the id it already has, so this is safe to repeat.
+            if let customerUserId = takePendingCustomerUserId() {
+                try? await implementation.identify(customerUserId: customerUserId)
+                try? await refreshPremiumState()
+            }
             await MainActor.run {
                 eventPassthrough.send(.onAdaptyActivate)
                 eventPassthrough.send(.onAdaptyUIActivated)
@@ -121,6 +136,31 @@ final public class PremiumManager: ObservableObject, @unchecked Sendable {
                 eventPassthrough.send(.onPurchaseFailed(error))
             }
             throw error
+        }
+    }
+
+    /// Logs the user in with your own user id (login / identify).
+    ///
+    /// Before `activate` finishes, the id is kept and Adapty starts on that
+    /// user. After activation, Adapty switches to that user's profile
+    /// (`Adapty.identify`) and `isPremium` / `activeAccessLevels` are
+    /// refreshed for them. Identifying again with the current id does nothing.
+    public func identify(customerUserId: String) async throws {
+        guard implementation.isActivated() else {
+            implementation.configurationBuilder?.with(customerUserId: customerUserId)
+            pendingLock.withLock { pendingCustomerUserId = customerUserId }
+            return
+        }
+        try await implementation.identify(customerUserId: customerUserId)
+        // The profile also arrives through `didLoadLatestProfile`; a failed
+        // refresh here doesn't undo the login.
+        try? await refreshPremiumState()
+    }
+
+    private func takePendingCustomerUserId() -> String? {
+        pendingLock.withLock {
+            defer { pendingCustomerUserId = nil }
+            return pendingCustomerUserId
         }
     }
 
