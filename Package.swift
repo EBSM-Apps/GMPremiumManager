@@ -15,7 +15,7 @@ let package = Package(
             targets: ["GMPremiumManager"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/adaptyteam/AdaptySDK-iOS", exact: "4.0.0-beta.1")
+        .package(url: "https://github.com/adaptyteam/AdaptySDK-iOS", from: "4.2.1")
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.

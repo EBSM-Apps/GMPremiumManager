@@ -44,14 +44,33 @@ final public class PremiumManager: ObservableObject, @unchecked Sendable {
     private var pendingCustomerUserId: String?
     private let pendingLock = NSLock()
 
+    /// The activation in flight. Callers that arrive while it runs wait for
+    /// it instead of activating Adapty a second time.
+    private var activation: Task<Void, Never>?
+    private let activationLock = NSLock()
+
     @Published public var isPremium = false
     @Published public var activeAccessLevels: [String] = []
     public var eventPassthrough: PassthroughSubject<Events, Never> = .init()
 
+    /// Activates Adapty and AdaptyUI, reporting the outcome through
+    /// `eventPassthrough`. A call made while an activation is running waits
+    /// for that one; a call after success throws `alreadyActivated`; a call
+    /// after a failure tries again.
     public func activate(appInstanceId: String?) async throws {
         if implementation.isActivated() {
             throw PremiumManagerError.alreadyActivated
         }
+        let task = activationLock.withLock {
+            if let activation { return activation }
+            let task = Task { await self.runActivation(appInstanceId: appInstanceId) }
+            activation = task
+            return task
+        }
+        await task.value
+    }
+
+    private func runActivation(appInstanceId: String?) async {
         do {
             try await implementation.activate(appInstanceId: appInstanceId)
             // A login that arrived while activating: Adapty ignores an
@@ -65,6 +84,8 @@ final public class PremiumManager: ObservableObject, @unchecked Sendable {
                 eventPassthrough.send(.onAdaptyUIActivated)
             }
         } catch {
+            // Before the event, so a listener that retries starts afresh.
+            activationLock.withLock { activation = nil }
             await MainActor.run {
                 eventPassthrough.send(.onErrorActivate(error))
             }

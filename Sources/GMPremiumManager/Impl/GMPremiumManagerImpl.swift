@@ -19,20 +19,25 @@ final public class GMPremiumManagerImpl: GMPremiumManager {
 
     }
 
+    /// Adapty and AdaptyUI each take one `activate` per process (a second
+    /// throws `activateOnceError` / `activateOnce`), so a retry after a later
+    /// step failed picks up from that step.
     public func activate(appInstanceId: String?) async throws {
         guard let configurationBuilder else { return }
-        do {
+        if await !Adapty.isActivated {
             try await Adapty.activate(with: configurationBuilder.build())
-
-            if let appInstanceId = appInstanceId {
-                try await Adapty.setIntegrationIdentifier(.firebaseAppInstanceId(appInstanceId))
-            }
-
-            try await AdaptyUI.activate()
-            self.isAdaptyActivated = true
-        } catch {
-            throw error
         }
+
+        if let appInstanceId = appInstanceId {
+            try await Adapty.setIntegrationIdentifier(.firebaseAppInstanceId(appInstanceId))
+        }
+
+        do {
+            try await AdaptyUI.activate()
+        } catch AdaptyUIError.activateOnce {
+            // Active since an earlier attempt.
+        }
+        self.isAdaptyActivated = true
     }
 
     public func fetchAllPaywalls(

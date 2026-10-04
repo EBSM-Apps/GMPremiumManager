@@ -37,6 +37,8 @@ Task {
 }
 ```
 
+Adapty allows one `activate` per app launch. A call made while an activation is running waits for that one, a call after success throws `PremiumManagerError.alreadyActivated`, and a call after a failure tries again from the step that failed.
+
 
 
 This will fetch all the paywall flows and keep them in the dictionary for later uses.
