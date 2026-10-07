@@ -231,3 +231,23 @@ Task {
   try await PremiumManager.shared.logPaywallOpen(for: paywall.flow)
 }
 ```
+
+
+# 11. Observer mode
+
+Use observer mode when your app buys and verifies purchases with StoreKit itself and uses Adapty for paywall content, A/B tests and analytics.
+
+```swift
+PremiumManager.configure(key: <YOUR_ADAPTY_KEY>, observerMode: true, idfaCollectionDisabled: true, implementation: GMPremiumManagerImpl())
+try await PremiumManager.shared.activate(appInstanceId: nil)
+
+// When a paywall opens: load just that placement, then log the view.
+let model = try await PremiumManager.shared.loadPaywall(for: AppPlacements.settings)
+try await PremiumManager.shared.logPaywallOpen(for: model.flow)
+let remoteConfig = model.rcConfig?.dictionary
+
+// After your StoreKit purchase is verified, and before `transaction.finish()`:
+try await PremiumManager.shared.reportTransaction(transaction, variationId: model.flow.variationId)
+```
+
+Report every verified transaction, including ones from `Transaction.updates`; Adapty skips Xcode StoreKit-testing transactions. `loadPaywall` keeps placements that are already loaded, while `fetchAllPaywalls` replaces them. In observer mode `isPremium` follows Adapty's profile, which updates after reported transactions; apps that decide access from StoreKit can ignore it.

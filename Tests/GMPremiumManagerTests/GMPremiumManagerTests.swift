@@ -65,4 +65,23 @@ final class GMPremiumManagerTests: XCTestCase {
         _ = try await (first, second)
         XCTAssertEqual(fake.activateCalls, 1)
     }
+
+    /// A placement without a flow fails to load instead of leaving a stale entry.
+    func testLoadPaywallWithoutFlowThrows() async throws {
+        let fake = FakeImplementation()
+        let manager = PremiumManager(key: "public_live_test", observerMode: true, implementation: fake)
+        try await manager.activate(appInstanceId: nil)
+        XCTAssertTrue(manager.isActivated)
+        do {
+            _ = try await manager.loadPaywall(for: TestPlacement.main)
+            XCTFail("a placement without a flow loaded")
+        } catch PremiumManagerError.paywallFetchingError {
+            XCTAssertNil(fake.paywalls[TestPlacement.main.id])
+        }
+    }
+}
+
+private enum TestPlacement: String, Placements, CaseIterable {
+    case main
+    var id: String { rawValue }
 }

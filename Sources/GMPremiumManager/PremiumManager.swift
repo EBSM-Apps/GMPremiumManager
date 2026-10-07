@@ -8,6 +8,7 @@
 import Adapty
 import AdaptyUI
 import Combine
+import StoreKit
 import SwiftUI
 
 final public class PremiumManager: ObservableObject, @unchecked Sendable {
@@ -109,6 +110,34 @@ final public class PremiumManager: ObservableObject, @unchecked Sendable {
 
     public func getPaywall(with placement: any Placements) -> PremiumManagerModel? {
         return implementation.paywalls[placement.id] ?? nil
+    }
+
+    /// Whether Adapty finished activating.
+    public var isActivated: Bool { implementation.isActivated() }
+
+    /// Loads one placement when it's needed and keeps the placements already loaded, unlike
+    /// `fetchAllPaywalls`, which replaces them.
+    public func loadPaywall(
+        for placement: any Placements,
+        locale: String? = nil,
+        flowConfigurationOptions: PremiumManagerFlowConfigurationOptions = .default
+    ) async throws -> PremiumManagerModel {
+        guard let model = try await implementation.fetchPaywallModel(
+            for: placement,
+            locale: locale,
+            flowConfigurationOptions: flowConfigurationOptions
+        ) else {
+            throw PremiumManagerError.paywallFetchingError
+        }
+        implementation.paywalls[placement.id] = model
+        return model
+    }
+
+    /// Observer mode: report each transaction your app bought and verified with StoreKit before
+    /// finishing it. Pass the paywall's `variationId` so purchases count toward that paywall and its
+    /// A/B test.
+    public func reportTransaction(_ transaction: StoreKit.Transaction, variationId: String? = nil) async throws {
+        try await implementation.reportTransaction(transaction, variationId: variationId)
     }
 
     private func fetchPaywall(for placement: any Placements, locale: String? = nil) async throws -> AdaptyFlow {
