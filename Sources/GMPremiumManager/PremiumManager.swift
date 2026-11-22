@@ -50,6 +50,10 @@ final public class PremiumManager: ObservableObject, @unchecked Sendable {
     private var activation: Task<Void, Never>?
     private let activationLock = NSLock()
 
+    /// Both change on the main thread only (``setPremiumState(_:levels:)``): they are
+    /// `@Published`, and Adapty's delegate sets them there. Until 0.0.34 a purchase, restore or
+    /// refresh also set them from a background task, so two threads could replace the array at
+    /// the same moment and release the old one twice, which corrupts the heap.
     @Published public var isPremium = false
     @Published public var activeAccessLevels: [String] = []
     public var eventPassthrough: PassthroughSubject<Events, Never> = .init()
@@ -174,9 +178,9 @@ final public class PremiumManager: ObservableObject, @unchecked Sendable {
                 break
             case .success(let profile, let transaction):
                 let isPremium = self.checkSubscriptionStatus(profile: profile)
-                self.isPremium = isPremium
-                self.activeAccessLevels = getActiveAccessLevels(in: profile)
+                let levels = getActiveAccessLevels(in: profile)
                 await MainActor.run {
+                    setPremiumState(isPremium, levels: levels)
                     eventPassthrough.send(.onPurchaseCompleted(product, isPremium, transaction))
                 }
             }
@@ -226,9 +230,9 @@ final public class PremiumManager: ObservableObject, @unchecked Sendable {
         do {
             let profile = try await implementation.restorePurchases()
             let isPremium = checkSubscriptionStatus(profile: profile)
-            self.isPremium = isPremium
-            self.activeAccessLevels = getActiveAccessLevels(in: profile)
+            let levels = getActiveAccessLevels(in: profile)
             await MainActor.run {
+                setPremiumState(isPremium, levels: levels)
                 if isPremium {
                     eventPassthrough.send(.onRestoreCompleted)
                 } else {
@@ -300,14 +304,20 @@ final public class PremiumManager: ObservableObject, @unchecked Sendable {
     public func refreshPremiumState() async throws {
         let profile = try await fetchProfile()
         let isPremium = checkSubscriptionStatus(profile: profile)
-        let newActiveAccessLevels = getActiveAccessLevels(in: profile)
-        if self.isPremium != isPremium {
-            await MainActor.run {
+        let levels = getActiveAccessLevels(in: profile)
+        await MainActor.run {
+            if self.isPremium != isPremium {
                 eventPassthrough.send(.onChangePremiumState(oldValue: self.isPremium, newValue: isPremium))
             }
+            setPremiumState(isPremium, levels: levels)
         }
-        self.isPremium = isPremium
-        self.activeAccessLevels = newActiveAccessLevels
+    }
+
+    /// The one place `isPremium` and `activeAccessLevels` change.
+    @MainActor
+    private func setPremiumState(_ isPremium: Bool, levels: [String]) {
+        if self.isPremium != isPremium { self.isPremium = isPremium }
+        if activeAccessLevels != levels { activeAccessLevels = levels }
     }
 
     private func isPremium(with accessLevel: [String: AdaptyProfile.AccessLevel]) -> Bool {
@@ -316,10 +326,16 @@ final public class PremiumManager: ObservableObject, @unchecked Sendable {
 }
 
 extension PremiumManager: AdaptyDelegate {
+    /// Adapty calls on its callback queue, the main queue unless the app chose another.
     public func didLoadLatestProfile(_ profile: AdaptyProfile) {
         eventPassthrough.send(.onLoadProfile(profile))
-        isPremium = checkSubscriptionStatus(profile: profile)
-        activeAccessLevels = getActiveAccessLevels(in: profile)
+        let isPremium = checkSubscriptionStatus(profile: profile)
+        let levels = getActiveAccessLevels(in: profile)
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { setPremiumState(isPremium, levels: levels) }
+        } else {
+            Task { @MainActor in self.setPremiumState(isPremium, levels: levels) }
+        }
     }
 }
 

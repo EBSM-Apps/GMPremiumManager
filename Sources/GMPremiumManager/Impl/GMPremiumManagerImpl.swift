@@ -11,10 +11,21 @@ import AdaptyUI
 import StoreKit
 
 final public class GMPremiumManagerImpl: GMPremiumManager {
-    public var paywalls: PremiumManagerPaywall = [:]
+    /// Read and written under `lock`: a fetch replaces the paywalls on a background task while
+    /// `getPaywall` may read them from any thread.
+    public var paywalls: PremiumManagerPaywall {
+        get { lock.withLock { storedPaywalls } }
+        set { lock.withLock { storedPaywalls = newValue } }
+    }
     public var configurationBuilder: AdaptyConfiguration.Builder?
 
-    private var isAdaptyActivated: Bool = false
+    private let lock = NSLock()
+    private var storedPaywalls: PremiumManagerPaywall = [:]
+    private var isAdaptyActivated: Bool {
+        get { lock.withLock { activated } }
+        set { lock.withLock { activated = newValue } }
+    }
+    private var activated = false
 
     public init() {
 
